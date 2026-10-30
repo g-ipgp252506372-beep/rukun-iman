@@ -1,0 +1,822 @@
+<!DOCTYPE html>
+<html lang="ms" dir="ltr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>AR Misi 6 Rukun Iman — Pendidikan Islam Tahun 1</title>
+    
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        arabic: ['Noto Sans Arabic', 'Amiri', 'serif'],
+                        bangers: ['Bangers', 'cursive'],
+                        outfit: ['Outfit', 'sans-serif'],
+                        fredoka: ['Fredoka', 'sans-serif'],
+                    },
+                    colors: {
+                        islamic: {
+                            green: '#047857',
+                            emerald: '#059669',
+                            gold: '#fbbf24',
+                            sky: '#0284c7',
+                            dark: '#022c22'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+
+    <!-- Font Awesome 6 CDN -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+
+    <!-- Canvas Confetti CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.2/dist/confetti.browser.min.js"></script>
+
+    <!-- Google Fonts CDN -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Amiri:wght@700&family=Bangers&family=Fredoka:wght@400;500;600;700&family=Noto+Sans+Arabic:wght@600;800&family=Outfit:wght@500;700;900&display=swap" rel="stylesheet">
+
+    <!-- MediaPipe Hands & Camera Utils CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
+    <style>
+        * {
+            box-sizing: border-box;
+            touch-action: manipulation;
+        }
+
+        body {
+            font-family: 'Fredoka', 'Outfit', sans-serif;
+            background-color: #022c22;
+            color: #ffffff;
+            overflow: hidden;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        .font-arabic {
+            font-family: 'Noto Sans Arabic', 'Amiri', serif;
+            direction: rtl;
+            unicode-bidi: isolate;
+        }
+
+        /* Suapan Kamera AR Mirroring */
+        .mirror-video {
+            transform: scaleX(-1);
+        }
+
+        .card-panel {
+            background: rgba(255, 255, 255, 0.93);
+            backdrop-filter: blur(12px);
+            border: 4px solid #f59e0b;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.6), inset 0 0 20px rgba(251, 191, 36, 0.25);
+            color: #0f172a;
+        }
+
+        .target-card {
+            background: #ffffff;
+            border: 4px solid #0d9488;
+            box-shadow: 0 8px 20px rgba(0,0,0,0.3);
+            transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .target-card:hover {
+            transform: translateY(-2px) scale(1.02);
+        }
+
+        .target-card.locked {
+            border-color: #0284c7 !important;
+            box-shadow: 0 0 35px #0284c7, inset 0 0 15px rgba(2, 132, 199, 0.4) !important;
+            transform: scale(1.06);
+            background-color: #f0f9ff !important;
+        }
+
+        .target-card.correct {
+            border-color: #22c55e !important;
+            box-shadow: 0 0 35px #22c55e !important;
+            background-color: #dcfce7 !important;
+            animation: pulse-green 0.5s ease;
+        }
+
+        .target-card.wrong {
+            border-color: #ef4444 !important;
+            box-shadow: 0 0 35px #ef4444 !important;
+            background-color: #fee2e2 !important;
+            animation: shake 0.4s ease-in-out;
+        }
+
+        /* Reticle / Cursor AR */
+        #reticle {
+            position: absolute;
+            width: 64px;
+            height: 64px;
+            pointer-events: none;
+            transform: translate(-50%, -50%);
+            z-index: 100;
+            transition: width 0.15s ease, height 0.15s ease, color 0.15s ease;
+        }
+
+        #reticle.locked {
+            width: 80px;
+            height: 80px;
+            color: #0284c7;
+        }
+
+        #reticle-progress {
+            transition: stroke-dashoffset 0.1s linear;
+        }
+
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            20%, 60% { transform: translateX(-8px); }
+            40%, 80% { transform: translateX(8px); }
+        }
+
+        @keyframes pulse-green {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.08); }
+            100% { transform: scale(1); }
+        }
+
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 6px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #059669;
+            border-radius: 10px;
+        }
+    </style>
+</head>
+<body class="relative w-screen h-screen overflow-hidden bg-emerald-950 select-none">
+
+    <!-- AR VIDEO LAYER (WEBCAM) -->
+    <video id="webcam" class="absolute inset-0 w-full h-full object-cover mirror-video z-0 hidden" autoplay playsinline muted></video>
+
+    <!-- OVERLAY FX CANVAS -->
+    <canvas id="fx-canvas" class="absolute inset-0 w-full h-full pointer-events-none z-10"></canvas>
+
+    <!-- MAIN UI CONTAINER -->
+    <div id="app-container" class="relative w-full h-full flex flex-col justify-between p-3 sm:p-5 z-30 max-w-5xl mx-auto">
+        
+        <!-- HEADER HUD -->
+        <header class="w-full flex flex-col gap-2">
+            <div class="card-panel rounded-2xl px-4 py-2.5 flex items-center justify-between shadow-2xl border-2 sm:border-4">
+                <!-- Title & Mission Indicator -->
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-amber-500 flex items-center justify-center text-2xl text-white shadow-md border-2 border-amber-300">
+                        <i class="fa-solid fa-kaaba text-amber-100"></i>
+                    </div>
+                    <div>
+                        <h1 class="font-extrabold text-emerald-950 text-xs sm:text-base tracking-wide leading-tight">AR MISI 6 RUKUN IMAN</h1>
+                        <span id="mission-badge" class="inline-block text-[11px] sm:text-xs font-bold text-amber-900 bg-amber-200 px-2.5 py-0.5 rounded-full mt-0.5 border border-amber-400">
+                            Muka Depan
+                        </span>
+                    </div>
+                </div>
+
+                <!-- Score & Audio Toggle -->
+                <div class="flex items-center gap-2 sm:gap-4">
+                    <div class="text-right">
+                        <div class="text-[9px] sm:text-[10px] text-emerald-900 uppercase tracking-widest font-black">MARKAH</div>
+                        <div id="score-display" class="font-bangers text-2xl sm:text-3xl text-emerald-700 leading-none">
+                            ⭐ 0
+                        </div>
+                    </div>
+                    <button onclick="speakCurrentText()" class="bg-amber-500 hover:bg-amber-400 text-amber-950 w-10 h-10 rounded-xl flex items-center justify-center text-lg shadow active:scale-95 transition border border-amber-300" title="Ulang Suara Arahan">
+                        <i class="fa-solid fa-volume-high"></i>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Progress Bar -->
+            <div class="w-full flex items-center gap-3 px-1">
+                <span id="step-count" class="text-xs font-bold text-amber-200 bg-black/70 px-3 py-1 rounded-lg border border-emerald-500/50 shadow">
+                    📍 Skrin 1 / 11
+                </span>
+                <div class="flex-1 h-3.5 bg-black/70 rounded-full p-0.5 border border-emerald-500 shadow-inner">
+                    <div id="progress-bar" class="h-full bg-gradient-to-r from-amber-400 to-yellow-300 rounded-full transition-all duration-300 w-0"></div>
+                </div>
+            </div>
+        </header>
+
+        <!-- MAIN INTERACTIVE CONTENT AREA -->
+        <main class="w-full max-w-2xl mx-auto my-auto flex flex-col items-center">
+            <div id="main-card" class="card-panel w-full rounded-3xl p-4 sm:p-6 text-center shadow-2xl relative border-4 border-amber-400 transition-all duration-300">
+                <div id="content-area" class="flex flex-col items-center gap-3">
+                    <!-- Dynamic screen content injected via JS -->
+                </div>
+            </div>
+        </main>
+
+        <!-- FOOTER / AR TARGET CARDS GRID -->
+        <footer class="w-full max-w-4xl mx-auto mb-1">
+            <div id="targets-grid" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 sm:gap-3">
+                <!-- Answer options dynamically injected via JS -->
+            </div>
+
+            <!-- HUD STATUS BAR & NAVIGATION CONTROLS -->
+            <div class="mt-2 flex items-center justify-between text-xs text-amber-100 bg-black/85 px-4 py-2 rounded-xl border border-emerald-600 shadow-lg backdrop-blur-md">
+                <div class="flex items-center gap-2">
+                    <span id="tracking-status-dot" class="w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse"></span>
+                    <span id="tracking-status-text" class="font-semibold text-amber-200 text-[11px] sm:text-xs">Tetikus / Sentuhan Aktif</span>
+                </div>
+                <div class="flex items-center gap-2">
+                    <button id="btn-prev" onclick="prevScreen()" class="bg-emerald-800 hover:bg-emerald-700 text-white font-bold px-3 py-1.5 rounded-lg border border-emerald-500 transition hidden text-xs">
+                        <i class="fa-solid fa-chevron-left mr-1"></i> Undur
+                    </button>
+                    <button id="btn-next" onclick="nextScreen()" class="bg-amber-500 hover:bg-amber-400 text-emerald-950 font-black px-4 py-1.5 rounded-lg border border-amber-300 transition shadow text-xs">
+                        Seterusnya <i class="fa-solid fa-chevron-right ml-1"></i>
+                    </button>
+                </div>
+            </div>
+        </footer>
+    </div>
+
+    <!-- AR RETICLE CURSOR -->
+    <div id="reticle" class="text-amber-400 flex items-center justify-center">
+        <svg viewBox="0 0 100 100" class="w-full h-full fill-current drop-shadow-[0_0_10px_rgba(0,0,0,0.9)]">
+            <circle cx="50" cy="50" r="42" fill="none" stroke="currentColor" stroke-width="4" stroke-dasharray="6 4" />
+            <circle id="reticle-progress" cx="50" cy="50" r="32" fill="none" stroke="#22c55e" stroke-width="6" stroke-dasharray="201" stroke-dashoffset="201" transform="rotate(-90 50 50)" />
+            <circle cx="50" cy="50" r="8" fill="currentColor" />
+            <line x1="50" y1="5" x2="50" y2="22" stroke="currentColor" stroke-width="4" stroke-linecap="round" />
+            <line x1="50" y1="78" x2="50" y2="95" stroke="currentColor" stroke-width="4" stroke-linecap="round" />
+            <line x1="5" y1="50" x2="22" y2="50" stroke="currentColor" stroke-width="4" stroke-linecap="round" />
+            <line x1="78" y1="50" x2="95" y2="50" stroke="currentColor" stroke-width="4" stroke-linecap="round" />
+        </svg>
+    </div>
+
+    <!-- START MODAL -->
+    <div id="modal-start" class="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-4">
+        <div class="card-panel max-w-lg w-full rounded-3xl p-6 text-center border-4 border-amber-500 shadow-2xl relative">
+            <div class="w-20 h-20 mx-auto bg-gradient-to-tr from-emerald-600 to-amber-400 rounded-2xl flex items-center justify-center text-4xl text-white shadow-lg mb-3">
+                <i class="fa-solid fa-kaaba"></i>
+            </div>
+            <h2 class="font-extrabold text-2xl sm:text-3xl text-emerald-950 leading-tight">AR MISI 6 RUKUN IMAN</h2>
+            <p class="text-xs font-bold text-amber-800 mt-1">Pendidikan Islam Tahun 1 (Multimedia Interaktif WebAR)</p>
+
+            <!-- AR Instructions -->
+            <div class="grid grid-cols-3 gap-2 my-5 text-left">
+                <div class="bg-emerald-50/90 p-3 rounded-2xl border border-emerald-300 text-center">
+                    <div class="text-2xl mb-1 text-emerald-700"><i class="fa-solid fa-hand-pointer"></i></div>
+                    <div class="text-[11px] font-bold text-emerald-900">1. Halakan Jari</div>
+                    <div class="text-[9px] text-emerald-700 leading-tight">Gunakan jari telunjuk di hadapan kamera</div>
+                </div>
+                <div class="bg-emerald-50/90 p-3 rounded-2xl border border-emerald-300 text-center">
+                    <div class="text-2xl mb-1 text-amber-600"><i class="fa-solid fa-crosshairs"></i></div>
+                    <div class="text-[11px] font-bold text-emerald-900">2. Kunci Sasaran</div>
+                    <div class="text-[9px] text-emerald-700 leading-tight">Arah kursor pada kad jawapan</div>
+                </div>
+                <div class="bg-emerald-50/90 p-3 rounded-2xl border border-emerald-300 text-center">
+                    <div class="text-2xl mb-1 text-sky-600"><i class="fa-solid fa-hand-back-fist"></i></div>
+                    <div class="text-[11px] font-bold text-emerald-900">3. Cubit / Klik</div>
+                    <div class="text-[9px] text-emerald-700 leading-tight">Cubit jari atau klik skrin terus</div>
+                </div>
+            </div>
+
+            <!-- Start Controls -->
+            <div class="flex flex-col sm:flex-row gap-3 justify-center">
+                <button onclick="startARGame('camera')" class="flex-1 bg-gradient-to-r from-amber-500 to-yellow-400 hover:from-amber-400 hover:to-yellow-300 text-emerald-950 font-black py-3 px-4 rounded-xl border-2 border-amber-200 shadow-lg active:scale-95 transition text-xs sm:text-sm flex items-center justify-center gap-2">
+                    <i class="fa-solid fa-camera"></i> BUKA KAMERA & MULA
+                </button>
+                <button onclick="startARGame('mouse')" class="flex-1 bg-emerald-800 hover:bg-emerald-700 text-white font-bold py-3 px-4 rounded-xl border border-emerald-600 shadow active:scale-95 transition text-xs sm:text-sm flex items-center justify-center gap-2">
+                    <i class="fa-solid fa-mouse-pointer"></i> MOD TETIKUS / SENTUH
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        /* ==========================================================================
+           1. WEB AUDIO SYNTHESIZER & SPEECH ENGINE
+           ========================================================================== */
+        class SoundEngine {
+            constructor() { this.ctx = null; }
+            init() {
+                if (!this.ctx) { this.ctx = new (window.AudioContext || window.webkitAudioContext)(); }
+                if (this.ctx.state === 'suspended') { this.ctx.resume(); }
+            }
+            playAimDing() {
+                if (!this.ctx) return;
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(880, this.ctx.currentTime);
+                gain.gain.setValueAtTime(0.05, this.ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.1);
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+                osc.start();
+                osc.stop(this.ctx.currentTime + 0.1);
+            }
+            playCorrect() {
+                if (!this.ctx) return;
+                const now = this.ctx.currentTime;
+                [523.25, 659.25, 783.99, 1046.50].forEach((freq, i) => {
+                    const osc = this.ctx.createOscillator();
+                    const gain = this.ctx.createGain();
+                    osc.type = 'triangle';
+                    osc.frequency.setValueAtTime(freq, now + i * 0.07);
+                    gain.gain.setValueAtTime(0.12, now + i * 0.07);
+                    gain.gain.exponentialRampToValueAtTime(0.001, now + i * 0.07 + 0.25);
+                    osc.connect(gain);
+                    gain.connect(this.ctx.destination);
+                    osc.start(now + i * 0.07);
+                    osc.stop(now + i * 0.07 + 0.25);
+                });
+            }
+            playWrong() {
+                if (!this.ctx) return;
+                const now = this.ctx.currentTime;
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(180, now);
+                osc.frequency.exponentialRampToValueAtTime(70, now + 0.25);
+                gain.gain.setValueAtTime(0.15, now);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.25);
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+                osc.start();
+                osc.stop(now + 0.25);
+            }
+        }
+
+        const sounds = new SoundEngine();
+
+        /* Malay Speech Synthesis */
+        function speakText(text) {
+            if ('speechSynthesis' in window) {
+                window.speechSynthesis.cancel();
+                const utterance = new SpeechSynthesisUtterance(text);
+                utterance.lang = 'ms-MY';
+                utterance.rate = 0.9;
+                window.speechSynthesis.speak(utterance);
+            }
+        }
+
+        /* ==========================================================================
+           2. GAME DATA & SCREEN STATE
+           ========================================================================== */
+        let currentScreen = 1;
+        const TOTAL_SCREENS = 11;
+        let score = 0;
+        let activeTextToSpeak = "";
+        let lockedTargetElement = null;
+        let lastShootTime = 0;
+        let lockTimer = null;
+        let lockProgress = 0;
+
+        const RUKUN_DATA = [
+            { num: 1, name: "Beriman kepada Allah", desc: "Allah ialah Tuhan yang Menciptakan alam.", arabic: "الإِيمَانُ بِاللَّهِ", icon: "fa-sun" },
+            { num: 2, name: "Beriman kepada Malaikat", desc: "Malaikat dicipta daripada cahaya dan taat.", arabic: "الإِيمَانُ بِالْمَلائِكَةِ", icon: "fa-feather" },
+            { num: 3, name: "Beriman kepada Kitab", desc: "Al-Quran ialah Kitab suci petunjuk hidup.", arabic: "الإِيمَانُ بِالْكُتُبِ", icon: "fa-book-quran" },
+            { num: 4, name: "Beriman kepada Rasul", desc: "Nabi Muhammad SAW ialah Rasul terakhir.", arabic: "الإِيمَانُ بِالرُّسُلِ", icon: "fa-star-and-crescent" },
+            { num: 5, name: "Beriman kepada Hari Akhirat", desc: "Hari pembalasan amalan manusia.", arabic: "الإِيمَانُ بِالْيَوْمِ الآخِرِ", icon: "fa-hourglass-end" },
+            { num: 6, name: "Beriman kepada Qada' & Qadar", desc: "Ketentuan baik dan buruk daripada Allah.", arabic: "الإِيمَانُ بِالْقَدَرِ", icon: "fa-compass" }
+        ];
+
+        /* SCREEN RENDERER */
+        function renderScreen(screenNum) {
+            sounds.init();
+            currentScreen = screenNum;
+            const content = document.getElementById('content-area');
+            const targetsGrid = document.getElementById('targets-grid');
+            const missionBadge = document.getElementById('mission-badge');
+            const stepCount = document.getElementById('step-count');
+            const progressBar = document.getElementById('progress-bar');
+            
+            stepCount.innerText = `Skrin ${screenNum} / ${TOTAL_SCREENS}`;
+            progressBar.style.width = `${(screenNum / TOTAL_SCREENS) * 100}%`;
+            targetsGrid.innerHTML = '';
+
+            if (screenNum === 1) {
+                /* SKRIN 1 – MUKA DEPAN */
+                missionBadge.innerText = "Muka Depan";
+                activeTextToSpeak = "Selamat datang ke AR Misi 6 Rukun Iman! Mari mulakan pengembaraan interaktif anda!";
+                content.innerHTML = `
+                    <div class="w-16 h-16 sm:w-20 sm:h-20 bg-amber-400 rounded-full flex items-center justify-center text-3xl sm:text-4xl text-amber-950 shadow-lg animate-bounce my-1">
+                        <i class="fa-solid fa-star"></i>
+                    </div>
+                    <h2 class="text-xl sm:text-2xl font-black text-emerald-950">MISI 6 RUKUN IMAN</h2>
+                    <p class="text-xs sm:text-sm font-medium text-emerald-800 max-w-md leading-relaxed">
+                        Modul pembelajaran AR interaktif khas bagi murid Pendidikan Islam Tahun 1. Pelajari 6 Rukun Iman dengan isyarat tangan atau tetikus!
+                    </p>
+                    <button onclick="nextScreen()" class="mt-2 bg-gradient-to-r from-amber-500 to-yellow-400 hover:from-amber-400 hover:to-yellow-300 text-emerald-950 font-black text-sm py-2.5 px-6 rounded-xl shadow-lg border-2 border-amber-200 active:scale-95 transition flex items-center gap-2">
+                        <i class="fa-solid fa-play"></i> MULA PENGEMBARAAN
+                    </button>
+                `;
+            } else if (screenNum === 2) {
+                /* SKRIN 2 – PENGENALAN */
+                missionBadge.innerText = "Pengenalan";
+                activeTextToSpeak = "Rukun Iman ada 6 perkara. Umat Islam wajib percaya kepada kesemua enam rukun ini.";
+                content.innerHTML = `
+                    <div class="text-emerald-700 text-3xl sm:text-4xl"><i class="fa-solid fa-book-open-reader"></i></div>
+                    <h3 class="text-base sm:text-lg font-extrabold text-emerald-950">Apakah Rukun Iman?</h3>
+                    <p class="text-xs sm:text-sm text-emerald-800 leading-relaxed max-w-lg">
+                        Rukun Iman ada <strong>6 perkara</strong>. Sebagai seorang Muslim yang taat, kita wajib meyakini setiap satu daripadanya di dalam hati.
+                    </p>
+                `;
+                targetsGrid.innerHTML = RUKUN_DATA.map((r) => `
+                    <div onclick="nextScreen()" class="target-card p-2.5 rounded-xl text-left cursor-pointer hover:bg-emerald-50 flex items-center gap-3">
+                        <div class="w-8 h-8 rounded-lg bg-amber-400 text-amber-950 font-black text-xs flex items-center justify-center shadow-sm shrink-0">
+                            ${r.num}
+                        </div>
+                        <div class="overflow-hidden">
+                            <div class="text-xs font-bold text-emerald-950 truncate">${r.name}</div>
+                            <div class="text-[10px] text-emerald-700 font-arabic">${r.arabic}</div>
+                        </div>
+                    </div>
+                `).join('');
+            } else if (screenNum === 3) {
+                /* SKRIN 3 – MISI 1: ALLAH */
+                missionBadge.innerText = "Misi 1 / 6";
+                activeTextToSpeak = "Misi Pertama: Beriman kepada Allah. Siapakah Tuhan yang Menciptakan seluruh alam?";
+                content.innerHTML = `
+                    <div class="bg-amber-100 text-amber-900 text-[11px] font-black px-3 py-1 rounded-full border border-amber-300">MISI 1: BERIMAN KEPADA ALLAH</div>
+                    <div class="font-arabic text-2xl text-emerald-800 my-1">اللهُ وَاحِدٌ</div>
+                    <p class="text-xs sm:text-sm font-bold text-emerald-950">❓ Soalan: Siapakah Tuhan yang menciptakan kita dan seluruh alam ini?</p>
+                `;
+                targetsGrid.innerHTML = `
+                    <div onclick="checkAnswer(true, 100, this)" class="target-card p-3 rounded-xl text-center cursor-pointer flex flex-col items-center justify-center">
+                        <span class="text-sm sm:text-base font-black text-emerald-950">🟢 A. Allah SW T</span>
+                    </div>
+                    <div onclick="checkAnswer(false, 0, this)" class="target-card p-3 rounded-xl text-center cursor-pointer flex flex-col items-center justify-center">
+                        <span class="text-sm sm:text-base font-black text-emerald-950">🔵 B. Pokok</span>
+                    </div>
+                    <div onclick="checkAnswer(false, 0, this)" class="target-card p-3 rounded-xl text-center cursor-pointer flex flex-col items-center justify-center">
+                        <span class="text-sm sm:text-base font-black text-emerald-950">🟡 C. Manusia</span>
+                    </div>
+                `;
+            } else if (screenNum === 4) {
+                /* SKRIN 4 – MISI 2: MALAIKAT */
+                missionBadge.innerText = "Misi 2 / 6";
+                activeTextToSpeak = "Misi Kedua: Beriman kepada Malaikat. Dibuat daripada apakah Malaikat?";
+                content.innerHTML = `
+                    <div class="bg-amber-100 text-amber-900 text-[11px] font-black px-3 py-1 rounded-full border border-amber-300">MISI 2: BERIMAN KEPADA MALAIKAT</div>
+                    <div class="text-3xl text-sky-600 my-1"><i class="fa-solid fa-feather-pointed"></i></div>
+                    <p class="text-xs sm:text-sm font-bold text-emerald-950">❓ Soalan: Malaikat diciptakan oleh Allah daripada apa?</p>
+                `;
+                targetsGrid.innerHTML = `
+                    <div onclick="checkAnswer(false, 0, this)" class="target-card p-3 rounded-xl text-center cursor-pointer flex flex-col items-center justify-center">
+                        <span class="text-sm font-black text-emerald-950">🔥 Tanah / Api</span>
+                    </div>
+                    <div onclick="checkAnswer(true, 100, this)" class="target-card p-3 rounded-xl text-center cursor-pointer flex flex-col items-center justify-center">
+                        <span class="text-sm font-black text-emerald-950">✨ Cahaya (Nur)</span>
+                    </div>
+                    <div onclick="checkAnswer(false, 0, this)" class="target-card p-3 rounded-xl text-center cursor-pointer flex flex-col items-center justify-center">
+                        <span class="text-sm font-black text-emerald-950">💨 Angin</span>
+                    </div>
+                `;
+            } else if (screenNum === 5) {
+                /* SKRIN 5 – MISI 3: KITAB */
+                missionBadge.innerText = "Misi 3 / 6";
+                activeTextToSpeak = "Misi Ketiga: Beriman kepada Kitab. Apakah Kitab suci wahyu terakhir umat Islam?";
+                content.innerHTML = `
+                    <div class="bg-amber-100 text-amber-900 text-[11px] font-black px-3 py-1 rounded-full border border-amber-300">MISI 3: BERIMAN KEPADA KITAB</div>
+                    <div class="text-3xl text-emerald-700 my-1"><i class="fa-solid fa-book-quran"></i></div>
+                    <p class="text-xs sm:text-sm font-bold text-emerald-950">❓ Soalan: Apakah nama Kitab Suci petunjuk hidup seluruh umat Islam?</p>
+                `;
+                targetsGrid.innerHTML = `
+                    <div onclick="checkAnswer(true, 100, this)" class="target-card p-3 rounded-xl text-center cursor-pointer flex flex-col items-center justify-center">
+                        <span class="text-sm font-black text-emerald-950">📖 Al-Quran</span>
+                    </div>
+                    <div onclick="checkAnswer(false, 0, this)" class="target-card p-3 rounded-xl text-center cursor-pointer flex flex-col items-center justify-center">
+                        <span class="text-sm font-black text-emerald-950">📚 Kamus Bahasa</span>
+                    </div>
+                    <div onclick="checkAnswer(false, 0, this)" class="target-card p-3 rounded-xl text-center cursor-pointer flex flex-col items-center justify-center">
+                        <span class="text-sm font-black text-emerald-950">📄 Surat Khabar</span>
+                    </div>
+                `;
+            } else if (screenNum === 6) {
+                /* SKRIN 6 – MISI 4: RASUL */
+                missionBadge.innerText = "Misi 4 / 6";
+                activeTextToSpeak = "Misi Keempat: Beriman kepada Rasul. Siapakah Nabi dan Rasul kita yang terakhir?";
+                content.innerHTML = `
+                    <div class="bg-amber-100 text-amber-900 text-[11px] font-black px-3 py-1 rounded-full border border-amber-300">MISI 4: BERIMAN KEPADA RASUL</div>
+                    <div class="font-arabic text-2xl text-emerald-800 my-1">مُحَمَّدٌ رَسُولُ اللَّهِ</div>
+                    <p class="text-xs sm:text-sm font-bold text-emerald-950">❓ Soalan: Siapakah nama Rasul dan Nabi terakhir utusan Allah?</p>
+                `;
+                targetsGrid.innerHTML = `
+                    <div onclick="checkAnswer(false, 0, this)" class="target-card p-3 rounded-xl text-center cursor-pointer flex flex-col items-center justify-center">
+                        <span class="text-sm font-black text-emerald-950">Nabi Adam A.S.</span>
+                    </div>
+                    <div onclick="checkAnswer(true, 100, this)" class="target-card p-3 rounded-xl text-center cursor-pointer flex flex-col items-center justify-center">
+                        <span class="text-sm font-black text-emerald-950">Nabi Muhammad S.A.W.</span>
+                    </div>
+                    <div onclick="checkAnswer(false, 0, this)" class="target-card p-3 rounded-xl text-center cursor-pointer flex flex-col items-center justify-center">
+                        <span class="text-sm font-black text-emerald-950">Nabi Ibrahim A.S.</span>
+                    </div>
+                `;
+            } else if (screenNum === 7) {
+                /* SKRIN 7 – MISI 5: HARI AKHIRAT */
+                missionBadge.innerText = "Misi 5 / 6";
+                activeTextToSpeak = "Misi Kelima: Beriman kepada Hari Akhirat. Apakah makna Hari Akhirat?";
+                content.innerHTML = `
+                    <div class="bg-amber-100 text-amber-900 text-[11px] font-black px-3 py-1 rounded-full border border-amber-300">MISI 5: BERIMAN KEPADA HARI AKHIRAT</div>
+                    <div class="text-3xl text-amber-600 my-1"><i class="fa-solid fa-hourglass-half"></i></div>
+                    <p class="text-xs sm:text-sm font-bold text-emerald-950">❓ Soalan: Hari Akhirat adalah hari di mana...</p>
+                `;
+                targetsGrid.innerHTML = `
+                    <div onclick="checkAnswer(true, 100, this)" class="target-card p-3 rounded-xl text-center cursor-pointer flex flex-col items-center justify-center">
+                        <span class="text-xs sm:text-sm font-black text-emerald-950">⚖️ Segala amalan dibalas</span>
+                    </div>
+                    <div onclick="checkAnswer(false, 0, this)" class="target-card p-3 rounded-xl text-center cursor-pointer flex flex-col items-center justify-center">
+                        <span class="text-xs sm:text-sm font-black text-emerald-950">🎒 Hari persekolahan bermula</span>
+                    </div>
+                    <div onclick="checkAnswer(false, 0, this)" class="target-card p-3 rounded-xl text-center cursor-pointer flex flex-col items-center justify-center">
+                        <span class="text-xs sm:text-sm font-black text-emerald-950">🏖️ Hari percutian keluarga</span>
+                    </div>
+                `;
+            } else if (screenNum === 8) {
+                /* SKRIN 8 – MISI 6: QADA' & QADAR */
+                missionBadge.innerText = "Misi 6 / 6";
+                activeTextToSpeak = "Misi Keenam: Beriman kepada Qada' dan Qadar. Ketentuan baik dan buruk adalah daripada siapa?";
+                content.innerHTML = `
+                    <div class="bg-amber-100 text-amber-900 text-[11px] font-black px-3 py-1 rounded-full border border-amber-300">MISI 6: BERIMAN KEPADA QADA' & QADAR</div>
+                    <div class="text-3xl text-emerald-700 my-1"><i class="fa-solid fa-hands-holding-child"></i></div>
+                    <p class="text-xs sm:text-sm font-bold text-emerald-950">❓ Soalan: Segala ketentuan baik dan buruk yang berlaku adalah ketetapan daripada...</p>
+                `;
+                targetsGrid.innerHTML = `
+                    <div onclick="checkAnswer(true, 100, this)" class="target-card p-3 rounded-xl text-center cursor-pointer flex flex-col items-center justify-center">
+                        <span class="text-sm font-black text-emerald-950">☝️ Allah S.W.T.</span>
+                    </div>
+                    <div onclick="checkAnswer(false, 0, this)" class="target-card p-3 rounded-xl text-center cursor-pointer flex flex-col items-center justify-center">
+                        <span class="text-sm font-black text-emerald-950">🤖 Nasib Kebetulan</span>
+                    </div>
+                `;
+            } else if (screenNum === 9) {
+                /* SKRIN 9 – MINI GAME: SUSUN RUKUN IMAN */
+                missionBadge.innerText = "Mini Game";
+                activeTextToSpeak = "Mini Game: Apakah Rukun Iman yang PERTAMA sekali?";
+                content.innerHTML = `
+                    <div class="bg-amber-200 text-amber-950 text-[11px] font-black px-3 py-0.5 rounded-full border border-amber-400">🧩 MINI GAME: SUSUN RUKUN IMAN</div>
+                    <p class="text-xs sm:text-sm font-bold text-emerald-950 my-1">Apakah Rukun Iman yang PERTAMA sekali dalam urutan?</p>
+                `;
+                targetsGrid.innerHTML = `
+                    <div onclick="checkAnswer(true, 150, this)" class="target-card p-2.5 rounded-xl text-center cursor-pointer">
+                        <span class="text-xs sm:text-sm font-black text-emerald-950">1. Beriman kepada Allah</span>
+                    </div>
+                    <div onclick="checkAnswer(false, 0, this)" class="target-card p-2.5 rounded-xl text-center cursor-pointer">
+                        <span class="text-xs sm:text-sm font-black text-emerald-950">2. Beriman kepada Malaikat</span>
+                    </div>
+                    <div onclick="checkAnswer(false, 0, this)" class="target-card p-2.5 rounded-xl text-center cursor-pointer">
+                        <span class="text-xs sm:text-sm font-black text-emerald-950">3. Beriman kepada Kitab</span>
+                    </div>
+                `;
+            } else if (screenNum === 10) {
+                /* SKRIN 10 – KUIZ AKHIR */
+                missionBadge.innerText = "Kuiz Akhir";
+                activeTextToSpeak = "Kuiz Akhir: Berapakah jumlah keseluruhan Rukun Iman?";
+                content.innerHTML = `
+                    <div class="bg-amber-200 text-amber-950 text-[11px] font-black px-3 py-0.5 rounded-full border border-amber-400">❓ KUIZ AKHIR</div>
+                    <p class="text-xs sm:text-sm font-bold text-emerald-950 my-1">Berapakah JUMLAH Rukun Iman yang wajib kita percayai?</p>
+                `;
+                targetsGrid.innerHTML = `
+                    <div onclick="checkAnswer(false, 0, this)" class="target-card p-3 rounded-xl text-center cursor-pointer font-black text-xl text-emerald-950">5</div>
+                    <div onclick="checkAnswer(true, 200, this)" class="target-card p-3 rounded-xl text-center cursor-pointer font-black text-xl text-emerald-700">6 🟢</div>
+                    <div onclick="checkAnswer(false, 0, this)" class="target-card p-3 rounded-xl text-center cursor-pointer font-black text-xl text-emerald-950">10</div>
+                `;
+            } else if (screenNum === 11) {
+                /* SKRIN 11 – TAMAT & SIJIL */
+                missionBadge.innerText = "Sijil Cemerlang";
+                activeTextToSpeak = "Tahniah! Anda telah berjaya menyelesaikan AR Misi 6 Rukun Iman!";
+                confetti({ particleCount: 120, spread: 80, origin: { y: 0.6 } });
+                content.innerHTML = `
+                    <div class="w-16 h-16 bg-amber-400 rounded-full flex items-center justify-center text-3xl text-amber-950 shadow-lg animate-bounce my-1">
+                        🏆
+                    </div>
+                    <h2 class="text-xl sm:text-2xl font-black text-emerald-950">TAHNIAH! ANDA HEBAT!</h2>
+                    <div class="bg-amber-50 border-2 border-amber-400 p-3 rounded-2xl w-full max-w-xs my-2 text-center shadow-inner">
+                        <div class="text-[10px] font-black text-amber-900 tracking-wider uppercase">SIJIL PEMBELAJAR CEMERLANG AR</div>
+                        <div class="text-2xl font-black text-emerald-800 my-1">MARKAH: ${score}</div>
+                        <p class="text-[11px] font-bold text-emerald-700">Pendidikan Islam Tahun 1</p>
+                    </div>
+                    <button onclick="renderScreen(1); score=0; document.getElementById('score-display').innerText='⭐ 0';" class="bg-amber-500 hover:bg-amber-400 text-emerald-950 font-black px-6 py-2.5 rounded-xl text-xs sm:text-sm shadow-lg active:scale-95 transition flex items-center gap-2">
+                        <i class="fa-solid fa-rotate-right"></i> MAIN SEMULA
+                    </button>
+                `;
+            }
+
+            speakText(activeTextToSpeak);
+            document.getElementById('btn-prev').classList.toggle('hidden', screenNum === 1);
+            document.getElementById('btn-next').classList.toggle('hidden', screenNum === TOTAL_SCREENS);
+        }
+
+        function speakCurrentText() { speakText(activeTextToSpeak); }
+
+        function checkAnswer(isCorrect, points, element) {
+            if (isCorrect) {
+                sounds.playCorrect();
+                score += points;
+                document.getElementById('score-display').innerText = `⭐ ${score}`;
+                if (element) element.classList.add('correct');
+                confetti({ particleCount: 40, spread: 60, origin: { y: 0.8 } });
+                setTimeout(() => nextScreen(), 800);
+            } else {
+                sounds.playWrong();
+                if (element) element.classList.add('wrong');
+            }
+        }
+
+        function nextScreen() { if (currentScreen < TOTAL_SCREENS) renderScreen(currentScreen + 1); }
+        function prevScreen() { if (currentScreen > 1) renderScreen(currentScreen - 1); }
+
+        /* ==========================================================================
+           3. MEDIAPIPE HAND TRACKING & HOVER DWELL AR LOGIC
+           ========================================================================== */
+        function startARGame(mode) {
+            document.getElementById('modal-start').classList.add('hidden');
+            sounds.init();
+            renderScreen(1);
+
+            if (mode === 'camera') {
+                document.getElementById('webcam').classList.remove('hidden');
+                initMediaPipeHands();
+            } else {
+                document.getElementById('tracking-status-text').innerText = "Mod Tetikus / Sentuhan Skrin Aktif";
+            }
+        }
+
+        function initMediaPipeHands() {
+            const videoElement = document.getElementById('webcam');
+            const reticle = document.getElementById('reticle');
+
+            const hands = new Hands({
+                locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+            });
+
+            hands.setOptions({
+                maxNumHands: 1,
+                modelComplexity: 1,
+                minDetectionConfidence: 0.55,
+                minTrackingConfidence: 0.55
+            });
+
+            hands.onResults((results) => {
+                if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                    document.getElementById('tracking-status-dot').className = "w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping";
+                    document.getElementById('tracking-status-text').innerText = "🎯 Tangan Dikesan — Kawal Kursor AR";
+
+                    const landmarks = results.multiHandLandmarks[0];
+                    // Index fingertip (Landmark 8) with mirrored x coordinate
+                    const indexX = (1 - landmarks[8].x) * window.innerWidth;
+                    const indexY = landmarks[8].y * window.innerHeight;
+
+                    // Thumbtip (Landmark 4) for pinch gesture detection
+                    const thumbX = (1 - landmarks[4].x) * window.innerWidth;
+                    const thumbY = landmarks[4].y * window.innerHeight;
+
+                    // Update reticle position
+                    reticle.style.left = `${indexX}px`;
+                    reticle.style.top = `${indexY}px`;
+
+                    // Collision check
+                    checkLockOnTarget(indexX, indexY);
+
+                    // Pinch gesture trigger (Distance threshold)
+                    const pinchDist = Math.hypot(indexX - thumbX, indexY - thumbY);
+                    if (pinchDist < 45) {
+                        const now = Date.now();
+                        if (now - lastShootTime > 800) {
+                            lastShootTime = now;
+                            triggerARShoot();
+                        }
+                    }
+                } else {
+                    document.getElementById('tracking-status-dot').className = "w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse";
+                    document.getElementById('tracking-status-text').innerText = "Arahkan tangan anda di hadapan kamera";
+                    resetDwellProgress();
+                }
+            });
+
+            // Akses kamera secara terus melalui getUserMedia
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                document.getElementById('tracking-status-text').innerText =
+                    "Pelayar tidak menyokong kamera. Buka laman melalui HTTPS atau localhost.";
+                return;
+            }
+
+            navigator.mediaDevices.getUserMedia({
+                video: {
+                    facingMode: "user",
+                    width: { ideal: 1280 },
+                    height: { ideal: 720 }
+                },
+                audio: false
+            }).then((stream) => {
+                videoElement.srcObject = stream;
+                videoElement.onloadedmetadata = async () => {
+                    try {
+                        await videoElement.play();
+                        document.getElementById('tracking-status-text').innerText =
+                            "Kamera aktif — Arahkan tangan anda di hadapan kamera";
+
+                        const processFrame = async () => {
+                            if (videoElement.srcObject && videoElement.readyState >= 2) {
+                                await hands.send({ image: videoElement });
+                            }
+                            if (videoElement.srcObject) {
+                                requestAnimationFrame(processFrame);
+                            }
+                        };
+                        processFrame();
+                    } catch (err) {
+                        console.warn("Video playback failed", err);
+                        document.getElementById('tracking-status-text').innerText =
+                            "Tidak dapat memulakan paparan kamera.";
+                    }
+                };
+            }).catch((err) => {
+                console.warn("Camera access failed", err);
+                document.getElementById('tracking-status-text').innerText =
+                    "Kamera tidak dapat diakses. Sila benarkan akses kamera pada pelayar.";
+            });
+        }
+
+        function checkLockOnTarget(x, y) {
+            const reticle = document.getElementById('reticle');
+            const targetCards = document.querySelectorAll('.target-card');
+            let foundCard = null;
+
+            targetCards.forEach((card) => {
+                const rect = card.getBoundingClientRect();
+                if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) {
+                    foundCard = card;
+                }
+            });
+
+            if (foundCard) {
+                if (lockedTargetElement !== foundCard) {
+                    sounds.playAimDing();
+                    resetDwellProgress();
+                    lockedTargetElement = foundCard;
+                    
+                    targetCards.forEach(c => c.classList.remove('locked'));
+                    foundCard.classList.add('locked');
+                    reticle.classList.add('locked');
+
+                    // Start hover-dwell timer (Auto-click after 1.2s hover)
+                    startDwellLock();
+                }
+            } else {
+                if (lockedTargetElement) {
+                    lockedTargetElement.classList.remove('locked');
+                    lockedTargetElement = null;
+                    reticle.classList.remove('locked');
+                    resetDwellProgress();
+                }
+            }
+        }
+
+        function startDwellLock() {
+            resetDwellProgress();
+            const duration = 1200; // 1.2 seconds hover lock
+            const startTime = Date.now();
+            const progressCircle = document.getElementById('reticle-progress');
+
+            lockTimer = setInterval(() => {
+                const elapsed = Date.now() - startTime;
+                lockProgress = Math.min(1, elapsed / duration);
+                // Dasharray circumference is ~201 (2 * PI * 32)
+                const offset = 201 * (1 - lockProgress);
+                if (progressCircle) progressCircle.style.strokeDashoffset = offset;
+
+                if (lockProgress >= 1) {
+                    resetDwellProgress();
+                    triggerARShoot();
+                }
+            }, 30);
+        }
+
+        function resetDwellProgress() {
+            if (lockTimer) clearInterval(lockTimer);
+            lockTimer = null;
+            lockProgress = 0;
+            const progressCircle = document.getElementById('reticle-progress');
+            if (progressCircle) progressCircle.style.strokeDashoffset = 201;
+        }
+
+        function triggerARShoot() {
+            if (lockedTargetElement) {
+                const card = lockedTargetElement;
+                resetDwellProgress();
+                card.click();
+            }
+        }
+
+        // Initialize on DOM Ready
+        window.addEventListener('DOMContentLoaded', () => {
+            renderScreen(1);
+        });
+    </script>
+</body>
+</html>
